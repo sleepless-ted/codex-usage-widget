@@ -3,8 +3,10 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
+using CodexUsageWidget.Application;
 using CodexUsageWidget.Infrastructure.Settings;
 using CodexUsageWidget.Infrastructure.Windows;
+using CodexUsageWidget.Localization;
 
 namespace CodexUsageWidget.Views;
 
@@ -19,6 +21,10 @@ public partial class TaskbarLabelWindow : Window
     private ExternalMouseDownWatcher? _contextMenuDismissWatcher;
     private IntPtr _windowHandle;
     private IndicatorPosition _position = IndicatorPosition.BottomLeft;
+    private string? _limitLabel;
+    private double? _remainingPercent;
+    private DateTimeOffset? _resetsAt;
+    private TimeFormatPreference _timeFormatPreference;
     private bool _labelRequested;
     private bool _isTaskActive;
     private bool _isClosed;
@@ -28,6 +34,7 @@ public partial class TaskbarLabelWindow : Window
     public TaskbarLabelWindow()
     {
         InitializeComponent();
+        Strings.Current.PropertyChanged += StringsOnPropertyChanged;
 
 #if DEBUG || ACTIVITY_PREVIEW
         ActivityPreviewMenuItem.Visibility = Visibility.Visible;
@@ -55,6 +62,7 @@ public partial class TaskbarLabelWindow : Window
             _contextMenuDismissWatcher?.Dispose();
             _contextMenuDismissWatcher = null;
             _windowChangeWatcher.Dispose();
+            Strings.Current.PropertyChanged -= StringsOnPropertyChanged;
         };
     }
 
@@ -164,24 +172,49 @@ public partial class TaskbarLabelWindow : Window
                 : System.Windows.Media.Color.FromArgb(24, 255, 255, 255));
     }
 
+    public void SetTimeFormatPreference(TimeFormatPreference preference)
+    {
+        _timeFormatPreference = preference;
+        UpdateUsage(_limitLabel, _remainingPercent, _resetsAt);
+    }
+
     public void UpdateUsage(
         string? limitLabel,
         double? remainingPercent,
         DateTimeOffset? resetsAt)
     {
+        _limitLabel = limitLabel;
+        _remainingPercent = remainingPercent;
+        _resetsAt = resetsAt;
         if (remainingPercent is null)
         {
             UsageText.Text = "--%";
-            LabelSurface.ToolTip = "Codex usage is currently unavailable.";
+            LabelSurface.ToolTip = Strings.Get("Taskbar_UsageUnavailable");
             return;
         }
 
         var value = Math.Round(Math.Clamp(remainingPercent.Value, 0d, 100d));
         UsageText.Text = $"{value:0}%";
-        var label = string.IsNullOrWhiteSpace(limitLabel) ? "Codex" : limitLabel;
+        var label = string.IsNullOrWhiteSpace(limitLabel)
+            ? "Codex"
+            : UsageLabelLocalizer.Localize(limitLabel);
         LabelSurface.ToolTip = resetsAt is null
-            ? $"{label}: {value:0}% remaining"
-            : $"{label}: {value:0}% remaining · resets {resetsAt.Value:ddd HH:mm}";
+            ? Strings.Format("Taskbar_Remaining", label, value)
+            : Strings.Format(
+                "Taskbar_RemainingWithReset",
+                label,
+                value,
+                TimeTextFormatter.FormatDayAndTime(
+                    resetsAt.Value,
+                    _timeFormatPreference));
+    }
+
+    private void StringsOnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == "Item[]" && !_isClosed)
+        {
+            UpdateUsage(_limitLabel, _remainingPercent, _resetsAt);
+        }
     }
 
     private void Reposition()

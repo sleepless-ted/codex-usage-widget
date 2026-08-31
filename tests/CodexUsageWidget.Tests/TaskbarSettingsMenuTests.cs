@@ -1,14 +1,17 @@
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Windows.Controls;
 using System.Windows.Media;
 using CodexUsageWidget.Application;
 using CodexUsageWidget.Infrastructure.Settings;
 using CodexUsageWidget.Infrastructure.Windows;
+using CodexUsageWidget.Localization;
 using CodexUsageWidget.Views;
 using CodexUsageWidget.Views.Controls;
 
 namespace CodexUsageWidget.Tests;
 
+[Collection("Localization")]
 public sealed class TaskbarSettingsMenuTests
 {
     [Fact]
@@ -19,7 +22,9 @@ public sealed class TaskbarSettingsMenuTests
         {
             try
             {
-                var application = new App();
+                var application = new App(new AppLanguageController(
+                    LanguagePreference.English,
+                    CultureInfo.GetCultureInfo("en-US")));
                 application.InitializeComponent();
                 var themeTestDirectory = Path.Combine(
                     Path.GetTempPath(),
@@ -45,6 +50,14 @@ public sealed class TaskbarSettingsMenuTests
                     window.FindName("ActivityDots"));
                 var activityDotBrush = Assert.IsType<SolidColorBrush>(activityDots.DotBrush);
                 Assert.Equal(Color.FromRgb(32, 33, 36), activityDotBrush.Color);
+                window.SetTimeFormatPreference(TimeFormatPreference.TwentyFourHour);
+                window.UpdateUsage(
+                    "Weekly limit",
+                    15,
+                    new DateTimeOffset(2030, 8, 31, 14, 5, 0, TimeSpan.Zero));
+                var labelSurface = Assert.IsType<Border>(
+                    window.FindName("LabelSurface"));
+                Assert.Contains("Sat 14:05", Assert.IsType<string>(labelSurface.ToolTip));
 
                 Assert.Contains(
                     menu.Items.OfType<MenuItem>(),
@@ -127,8 +140,29 @@ public sealed class TaskbarSettingsMenuTests
                     activityHookSetupService: new StubActivityHookSetupService(),
                     codexLauncher: new StubCodexLauncher(),
                     accentPalette: AccentPalette.Violet,
-                    indicatorPosition: new IndicatorPosition(30, 70));
+                    indicatorPosition: new IndicatorPosition(30, 70),
+                    timeFormatPreference: TimeFormatPreference.TwentyFourHour);
                 Assert.NotNull(usageSettings.FindName("ActivityDotsSection"));
+                var systemLanguageOption = Assert.IsType<RadioButton>(
+                    usageSettings.FindName("SystemLanguageOption"));
+                Assert.True(systemLanguageOption.IsChecked);
+                LanguagePreference? changedLanguage = null;
+                usageSettings.LanguagePreferenceChanged += preference =>
+                    changedLanguage = preference;
+                var chineseLanguageOption = Assert.IsType<RadioButton>(
+                    usageSettings.FindName("SimplifiedChineseLanguageOption"));
+                chineseLanguageOption.IsChecked = true;
+                Assert.Equal(LanguagePreference.SimplifiedChinese, changedLanguage);
+                var twentyFourHourOption = Assert.IsType<RadioButton>(
+                    usageSettings.FindName("TwentyFourHourTimeOption"));
+                Assert.True(twentyFourHourOption.IsChecked);
+                TimeFormatPreference? changedTimeFormat = null;
+                usageSettings.TimeFormatPreferenceChanged += preference =>
+                    changedTimeFormat = preference;
+                var twelveHourOption = Assert.IsType<RadioButton>(
+                    usageSettings.FindName("TwelveHourTimeOption"));
+                twelveHourOption.IsChecked = true;
+                Assert.Equal(TimeFormatPreference.TwelveHour, changedTimeFormat);
                 var activityDotsHost = Assert.IsType<ContentControl>(
                     usageSettings.FindName("ActivityDotsHost"));
                 Assert.IsType<ActivityHookSetupControl>(activityDotsHost.Content);
@@ -274,6 +308,15 @@ public sealed class TaskbarSettingsMenuTests
         if (failure is not null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        try
+        {
+            Strings.Current.SetCulture(CultureInfo.GetCultureInfo("zh-CN"));
+        }
+        finally
+        {
+            Strings.Current.SetCulture(CultureInfo.GetCultureInfo("en-US"));
         }
     }
 

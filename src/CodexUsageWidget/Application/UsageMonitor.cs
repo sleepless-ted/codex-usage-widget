@@ -1,4 +1,5 @@
 using CodexUsageWidget.Domain;
+using CodexUsageWidget.Localization;
 
 namespace CodexUsageWidget.Application;
 
@@ -54,6 +55,17 @@ public sealed class UsageMonitor : IAsyncDisposable
             return;
         }
 
+        await RefreshWithGateHeldAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RefreshAfterCurrentAsync(CancellationToken cancellationToken = default)
+    {
+        await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await RefreshWithGateHeldAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RefreshWithGateHeldAsync(CancellationToken cancellationToken)
+    {
         try
         {
             RefreshStarted?.Invoke();
@@ -67,7 +79,7 @@ public sealed class UsageMonitor : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            RefreshFailed?.Invoke("Codex did not respond in time.");
+            RefreshFailed?.Invoke(Strings.Get("Error_ResponseTimeout"));
         }
         catch (Exception ex)
         {

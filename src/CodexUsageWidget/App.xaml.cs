@@ -7,6 +7,7 @@ using CodexUsageWidget.Infrastructure.Logging;
 using CodexUsageWidget.Infrastructure.Preview;
 using CodexUsageWidget.Infrastructure.Settings;
 using CodexUsageWidget.Infrastructure.Windows;
+using CodexUsageWidget.Localization;
 using CodexUsageWidget.Views;
 
 namespace CodexUsageWidget;
@@ -18,7 +19,19 @@ public partial class App : System.Windows.Application, IDisposable
     private FileLogger? _logger;
     private GlobalExceptionHandler? _exceptionHandler;
     private AppThemeController? _themeController;
+    private readonly AppLanguageController _languageController;
     private bool _disposed;
+
+    public App()
+        : this(new AppLanguageController(new LanguagePreferenceStore()))
+    {
+    }
+
+    public App(AppLanguageController languageController)
+    {
+        ArgumentNullException.ThrowIfNull(languageController);
+        _languageController = languageController;
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -40,17 +53,24 @@ public partial class App : System.Windows.Application, IDisposable
             var appServerSession = new CodexAppServerSession();
             var codexUsageProvider = new CodexUsageProvider(appServerSession);
             IUsageProvider usageProvider = codexUsageProvider;
+            IRateLimitResetConsumer resetConsumer =
+                new CodexRateLimitResetConsumer(
+                    appServerSession,
+                    new RateLimitResetAttemptStore());
             var usagePreviewEnabled = false;
 #if DEBUG || USAGE_PREVIEW
             if (e.Args.Contains("--preview-usage", StringComparer.OrdinalIgnoreCase))
             {
                 usagePreviewEnabled = true;
-                usageProvider = new PreviewUsageProvider(codexUsageProvider);
+                var previewProvider = new PreviewUsageProvider(codexUsageProvider);
+                usageProvider = previewProvider;
+                resetConsumer = previewProvider;
                 _logger.Info("Usage preview mode is active.");
             }
 #endif
             var usageMonitor = new UsageMonitor(usageProvider);
             usageMonitor.DiagnosticMessage += (_, message) => _logger.Info(message);
+            var resetUseCase = new RateLimitResetUseCase(resetConsumer, usageMonitor);
 
             activityMonitor = new CodexActivityMonitor(new CodexActivityPipeSignalSource());
             activityMonitor.DiagnosticMessage += (_, message) => _logger.Info(message);
@@ -76,6 +96,7 @@ public partial class App : System.Windows.Application, IDisposable
 
             var window = new MainWindow(
                 usageMonitor,
+                resetUseCase,
                 activityMonitor,
                 activityHookSetupService,
                 new CodexCliLauncher(),
@@ -85,7 +106,9 @@ public partial class App : System.Windows.Application, IDisposable
                 new IndicatorPositionStore(),
                 startupRegistrationService,
                 new TrayIconService(),
-                _themeController);
+                _themeController,
+                _languageController,
+                new TimeFormatPreferenceStore());
             MainWindow = window;
             activityMonitor.StartAsync().GetAwaiter().GetResult();
             window.Show();
@@ -101,8 +124,8 @@ public partial class App : System.Windows.Application, IDisposable
             activityMonitor?.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _logger.LogError("Application startup failed.", ex);
             System.Windows.MessageBox.Show(
-                "Codex Usage Widget could not start. See the log under " + AppPaths.LogDirectory,
-                "Codex Usage Widget",
+                Strings.Format("App_StartupFailure", AppPaths.LogDirectory),
+                Strings.Get("App_Name"),
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(-1);

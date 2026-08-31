@@ -1,9 +1,13 @@
+using System.Globalization;
+using CodexUsageWidget.Application;
 using CodexUsageWidget.Domain;
+using CodexUsageWidget.Localization;
 using CodexUsageWidget.Views.ViewModels;
 
 namespace CodexUsageWidget.Tests;
 
-public sealed class UsageWidgetViewModelTests
+[Collection("Localization")]
+public sealed class UsageWidgetViewModelTests : IDisposable
 {
     [Fact]
     public void FromSnapshotUsesMostConstrainedGeneralWindowForHeadline()
@@ -88,6 +92,35 @@ public sealed class UsageWidgetViewModelTests
     }
 
     [Fact]
+    public void FromSnapshotFormatsUpdatedTimeUsingPreference()
+    {
+                Strings.Current.SetCulture(CultureInfo.GetCultureInfo("en-US"), CultureInfo.GetCultureInfo("en-US"));
+var window = new UsageWindow("5h limit", 20, 300, null);
+        var snapshot = new UsageSnapshot(
+            new UsageRateLimits(
+                [new UsageLimitBucket(
+                    "codex",
+                    "Codex",
+                    IsGeneral: true,
+                    [window],
+                    Credits: null,
+                    IndividualLimit: null,
+                    ReachedState: null,
+                    SpendControlReached: null)],
+                "pro",
+                ResetCredits: null),
+            TokenActivity: null,
+            new DateTimeOffset(2030, 8, 31, 14, 5, 9, TimeSpan.Zero));
+
+        var viewModel = UsageWidgetViewModel.FromSnapshot(
+            snapshot,
+            window,
+            TimeFormatPreference.TwelveHour);
+
+        Assert.Equal("Local only · updated 2:05:09 PM", viewModel.UpdatedText);
+    }
+
+    [Fact]
     public void FromSnapshotKeepsModelSpecificLimitsOutOfGeneralList()
     {
         var snapshot = CreateSnapshot(
@@ -118,6 +151,9 @@ public sealed class UsageWidgetViewModelTests
         var modelLimit = Assert.Single(viewModel.ModelLimits);
         Assert.Contains("GPT-5.3-Codex-Spark", modelLimit.Label, StringComparison.Ordinal);
     }
+
+    public void Dispose() =>
+        Strings.Current.SetCulture(CultureInfo.GetCultureInfo("en-US"), CultureInfo.GetCultureInfo("en-US"));
 
     private static UsageSnapshot CreateSnapshot(params UsageLimitBucket[] limits) => new(
         new UsageRateLimits(limits, "pro", ResetCredits: null),

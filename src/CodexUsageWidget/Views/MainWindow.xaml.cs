@@ -7,6 +7,7 @@ using CodexUsageWidget.Application;
 using CodexUsageWidget.Domain;
 using CodexUsageWidget.Infrastructure.Settings;
 using CodexUsageWidget.Infrastructure.Windows;
+using CodexUsageWidget.Localization;
 using CodexUsageWidget.Views.ViewModels;
 
 namespace CodexUsageWidget.Views;
@@ -19,6 +20,7 @@ public partial class MainWindow : Window
     private const double DetailedHeight = 620d;
 
     private readonly UsageMonitor _usageMonitor;
+    private readonly RateLimitResetUseCase _resetUseCase;
     private readonly CodexActivityMonitor _activityMonitor;
     private readonly IActivityHookSetupService _activityHookSetupService;
     private readonly ICodexLauncher _codexLauncher;
@@ -26,9 +28,11 @@ public partial class MainWindow : Window
     private readonly WidgetDensityStore _densityStore;
     private readonly DisplayedLimitPreferenceStore _displayedLimitPreferenceStore;
     private readonly IndicatorPositionStore _indicatorPositionStore;
+    private readonly TimeFormatPreferenceStore _timeFormatPreferenceStore;
     private readonly StartupRegistrationService _startupRegistration;
     private readonly TrayIconService _trayIcon;
     private readonly AppThemeController _themeController;
+    private readonly AppLanguageController _languageController;
     private readonly TaskbarLabelWindow _taskbarLabel = new();
     private readonly WidgetVisibilityController _widgetVisibility;
     private readonly MainWindowCloseState _closeState = new();
@@ -37,15 +41,19 @@ public partial class MainWindow : Window
     private WidgetDensity _density;
     private DisplayedLimitPreference _displayedLimitPreference;
     private IndicatorPosition _indicatorPosition;
+    private TimeFormatPreference _timeFormatPreference;
     private UsageSnapshot? _latestSnapshot;
     private UsageWidgetViewModel _viewModel = UsageWidgetViewModel.Loading();
     private bool _isRealActivityActive;
     private bool _isActivityPreviewEnabled;
     private bool _isSettingsOpen;
+    private bool _isResetDialogOpen;
+    private bool _resetUsePending;
     private bool _shutdownStarted;
 
     public MainWindow(
         UsageMonitor usageMonitor,
+        RateLimitResetUseCase resetUseCase,
         CodexActivityMonitor activityMonitor,
         IActivityHookSetupService activityHookSetupService,
         ICodexLauncher codexLauncher,
@@ -55,9 +63,12 @@ public partial class MainWindow : Window
         IndicatorPositionStore indicatorPositionStore,
         StartupRegistrationService startupRegistration,
         TrayIconService trayIcon,
-        AppThemeController themeController)
+        AppThemeController themeController,
+        AppLanguageController languageController,
+        TimeFormatPreferenceStore timeFormatPreferenceStore)
     {
         _usageMonitor = usageMonitor;
+        _resetUseCase = resetUseCase;
         _activityMonitor = activityMonitor;
         _activityHookSetupService = activityHookSetupService;
         _codexLauncher = codexLauncher;
@@ -68,14 +79,18 @@ public partial class MainWindow : Window
         _startupRegistration = startupRegistration;
         _trayIcon = trayIcon;
         _themeController = themeController;
+        _languageController = languageController;
+        _timeFormatPreferenceStore = timeFormatPreferenceStore;
         _displayMode = displayModeStore.Load();
         _density = densityStore.Load();
         _displayedLimitPreference = displayedLimitPreferenceStore.Load();
         _indicatorPosition = indicatorPositionStore.Load();
+        _timeFormatPreference = timeFormatPreferenceStore.Load();
         _widgetVisibility = new WidgetVisibilityController(() => IsVisible, ShowWidget, Hide);
 
         _taskbarLabel.SetPosition(_indicatorPosition);
         InitializeComponent();
+        _taskbarLabel.SetTimeFormatPreference(_timeFormatPreference);
         DataContext = _viewModel;
         ApplyDensity(repositionBottomEdge: false);
         WireEvents();
@@ -92,6 +107,7 @@ public partial class MainWindow : Window
         _usageMonitor.RefreshStarted += UsageMonitorOnRefreshStarted;
         _usageMonitor.SnapshotUpdated += UsageMonitorOnSnapshotUpdated;
         _usageMonitor.RefreshFailed += UsageMonitorOnRefreshFailed;
+        DetailedView.ResetUseRequested += DetailedViewOnResetUseRequested;
         _activityMonitor.ActivityChanged += ActivityMonitorOnActivityChanged;
         _taskbarLabel.OpenRequested += (_, _) =>
             Dispatcher.BeginInvoke(_widgetVisibility.Show, DispatcherPriority.ApplicationIdle);
@@ -171,7 +187,10 @@ public partial class MainWindow : Window
     {
         _latestSnapshot = snapshot;
         var displayedWindow = ResolveDisplayedWindow(snapshot);
-        var nextViewModel = UsageWidgetViewModel.FromSnapshot(snapshot, displayedWindow);
+        var nextViewModel = UsageWidgetViewModel.FromSnapshot(
+            snapshot,
+            displayedWindow,
+            _timeFormatPreference);
         SetViewModel(nextViewModel);
         if (_density == WidgetDensity.Detailed)
         {
@@ -258,8 +277,8 @@ public partial class MainWindow : Window
             : Visibility.Collapsed;
         DensityGlyphRotation.Angle = _density == WidgetDensity.Detailed ? 180d : 0d;
         DensityButton.ToolTip = _density == WidgetDensity.Detailed
-            ? "Show compact view"
-            : "Show details";
+            ? Strings.Get("Main_ShowCompact")
+            : Strings.Get("Main_ShowDetails");
 
         if (_density == WidgetDensity.Detailed)
         {
@@ -344,7 +363,9 @@ public partial class MainWindow : Window
                 _activityHookSetupService,
                 _codexLauncher,
                 _themeController.AccentPalette,
-                _indicatorPosition)
+                _indicatorPosition,
+                _languageController.Preference,
+                _timeFormatPreference)
             {
                 Owner = this
             };
@@ -355,6 +376,8 @@ public partial class MainWindow : Window
             window.DisplayedLimitPreferenceChanged += SetDisplayedLimitPreference;
             window.StartWithWindowsChanged += SetStartupRegistration;
             window.IndicatorPositionChanged += SetIndicatorPosition;
+            window.LanguagePreferenceChanged += SetLanguagePreference;
+            window.TimeFormatPreferenceChanged += SetTimeFormatPreference;
             window.ShowDialog();
         }
         finally
@@ -410,8 +433,8 @@ public partial class MainWindow : Window
 
         SetStartupRegistrationState(_startupRegistration.IsEnabled);
         System.Windows.MessageBox.Show(
-            "The Windows startup preference could not be updated.",
-            "Codex Usage Widget",
+            Strings.Get("Main_StartupPreferenceError"),
+            Strings.Get("App_Name"),
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }
@@ -429,10 +452,125 @@ public partial class MainWindow : Window
         }
 
         System.Windows.MessageBox.Show(
-            "Windows could not open the widget release page.",
-            "Codex Usage Widget",
+            Strings.Get("Main_UpdateOpenError"),
+            Strings.Get("App_Name"),
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
+    }
+
+    private void SetLanguagePreference(LanguagePreference preference)
+    {
+        _languageController.SetPreference(preference);
+        ApplyDensity(repositionBottomEdge: false);
+        if (_latestSnapshot is { } snapshot)
+        {
+            RenderSnapshot(snapshot);
+            return;
+        }
+
+        SetViewModel(UsageWidgetViewModel.Loading());
+        _ = _usageMonitor.RefreshAsync();
+    }
+
+    private void SetTimeFormatPreference(TimeFormatPreference preference)
+    {
+        _timeFormatPreference = preference;
+        _timeFormatPreferenceStore.Save(preference);
+        _taskbarLabel.SetTimeFormatPreference(preference);
+        if (_latestSnapshot is { } snapshot)
+        {
+            RenderSnapshot(snapshot);
+        }
+    }
+
+    private async void DetailedViewOnResetUseRequested(
+        object? sender,
+        Controls.RateLimitResetRequestedEventArgs e)
+    {
+        if (_resetUsePending)
+        {
+            return;
+        }
+
+        if (!ShowResetConfirmation(e.Credit))
+        {
+            return;
+        }
+
+        _resetUsePending = true;
+        DetailedView.SetResetUsePending(pending: true);
+        try
+        {
+            var result = await _resetUseCase.UseAsync(e.Credit.CreditId);
+            if (result.Status is RateLimitResetUseStatus.NothingToReset)
+            {
+                ShowResetMessage(
+                    Strings.Get("Usage_ResetNothingToReset"),
+                    MessageBoxImage.Information);
+            }
+            else if (result.Status is RateLimitResetUseStatus.NoCredit)
+            {
+                ShowResetMessage(
+                    Strings.Get("Usage_ResetNoCredit"),
+                    MessageBoxImage.Warning);
+            }
+            else if (result.Status is RateLimitResetUseStatus.TimedOut)
+            {
+                ShowResetMessage(
+                    Strings.Get("Error_ResponseTimeout"),
+                    MessageBoxImage.Warning);
+            }
+            else if (result.Status is RateLimitResetUseStatus.Failed)
+            {
+                ShowResetMessage(
+                    Strings.Format(
+                        "Usage_ResetFailure",
+                        result.ErrorMessage ?? string.Empty),
+                    MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            _resetUsePending = false;
+            DetailedView.SetResetUsePending(pending: false);
+        }
+    }
+
+    private bool ShowResetConfirmation(RateLimitResetCreditViewModel credit)
+    {
+        _isResetDialogOpen = true;
+        try
+        {
+            var confirmation = new RateLimitResetConfirmationWindow(
+                credit,
+                _timeFormatPreference)
+            {
+                Owner = this
+            };
+            return confirmation.ShowDialog() == true;
+        }
+        finally
+        {
+            _isResetDialogOpen = false;
+        }
+    }
+
+    private void ShowResetMessage(string message, MessageBoxImage image)
+    {
+        _isResetDialogOpen = true;
+        try
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                message,
+                Strings.Get("Usage_RateLimitResets"),
+                MessageBoxButton.OK,
+                image);
+        }
+        finally
+        {
+            _isResetDialogOpen = false;
+        }
     }
 
     private void Widget_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -478,10 +616,11 @@ public partial class MainWindow : Window
 
     private void MainWindowOnDeactivated(object? sender, EventArgs e)
     {
-        if (_displayMode == WidgetDisplayMode.TaskbarIndicator &&
-            !_isSettingsOpen)
+        if (_displayMode == WidgetDisplayMode.TaskbarIndicator)
         {
-            _widgetVisibility.HideOnDeactivated(_taskbarLabel.IsPointerOver);
+            _widgetVisibility.HideOnDeactivated(
+                _taskbarLabel.IsPointerOver,
+                ownedDialogOpen: _isSettingsOpen || _isResetDialogOpen);
         }
     }
 

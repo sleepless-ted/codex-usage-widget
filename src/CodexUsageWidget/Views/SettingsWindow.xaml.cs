@@ -23,6 +23,8 @@ public partial class SettingsWindow : Window
         ICodexLauncher codexLauncher,
         AccentPalette accentPalette = AccentPalette.Blue,
         IndicatorPosition? indicatorPosition = null,
+        LanguagePreference languagePreference = LanguagePreference.System,
+        TimeFormatPreference timeFormatPreference = TimeFormatPreference.Automatic,
         IWindowWorkAreaProvider? workAreaProvider = null)
     {
         _workAreaProvider = workAreaProvider ?? new WindowWorkAreaProvider();
@@ -38,6 +40,8 @@ public partial class SettingsWindow : Window
         SetFiveHourLimitAvailability(fiveHourLimitAvailable);
         SetStartWithWindowsEnabled(startWithWindowsEnabled);
         SetIndicatorPosition(indicatorPosition ?? IndicatorPosition.BottomLeft);
+        SetLanguagePreference(languagePreference);
+        SetTimeFormatPreference(timeFormatPreference);
         _suppressChangeEvents = false;
     }
 
@@ -52,6 +56,10 @@ public partial class SettingsWindow : Window
     public event Action<bool>? StartWithWindowsChanged;
 
     public event Action<IndicatorPosition>? IndicatorPositionChanged;
+
+    public event Action<LanguagePreference>? LanguagePreferenceChanged;
+
+    public event Action<TimeFormatPreference>? TimeFormatPreferenceChanged;
 
     public ThemePreference SelectedTheme =>
         LightThemeOption.IsChecked == true
@@ -88,6 +96,20 @@ public partial class SettingsWindow : Window
     public IndicatorPosition SelectedIndicatorPosition => new IndicatorPosition(
         (int)Math.Round(HorizontalIndicatorPositionSlider.Value),
         (int)Math.Round(VerticalIndicatorPositionSlider.Value)).Clamp();
+
+    public LanguagePreference SelectedLanguage =>
+        EnglishLanguageOption.IsChecked == true
+            ? LanguagePreference.English
+            : SimplifiedChineseLanguageOption.IsChecked == true
+                ? LanguagePreference.SimplifiedChinese
+                : LanguagePreference.System;
+
+    public TimeFormatPreference SelectedTimeFormat =>
+        TwentyFourHourTimeOption.IsChecked == true
+            ? TimeFormatPreference.TwentyFourHour
+            : TwelveHourTimeOption.IsChecked == true
+                ? TimeFormatPreference.TwelveHour
+                : TimeFormatPreference.Automatic;
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -145,6 +167,27 @@ public partial class SettingsWindow : Window
         HorizontalIndicatorPositionSlider.Value = clamped.HorizontalPercent;
         VerticalIndicatorPositionSlider.Value = clamped.VerticalPercent;
         UpdateIndicatorPositionLabels(clamped);
+        _suppressChangeEvents = previousSuppression;
+    }
+
+    public void SetLanguagePreference(LanguagePreference preference)
+    {
+        var previousSuppression = _suppressChangeEvents;
+        _suppressChangeEvents = true;
+        SystemLanguageOption.IsChecked = preference == LanguagePreference.System;
+        EnglishLanguageOption.IsChecked = preference == LanguagePreference.English;
+        SimplifiedChineseLanguageOption.IsChecked =
+            preference == LanguagePreference.SimplifiedChinese;
+        _suppressChangeEvents = previousSuppression;
+    }
+
+    public void SetTimeFormatPreference(TimeFormatPreference preference)
+    {
+        var previousSuppression = _suppressChangeEvents;
+        _suppressChangeEvents = true;
+        AutomaticTimeOption.IsChecked = preference == TimeFormatPreference.Automatic;
+        TwentyFourHourTimeOption.IsChecked = preference == TimeFormatPreference.TwentyFourHour;
+        TwelveHourTimeOption.IsChecked = preference == TimeFormatPreference.TwelveHour;
         _suppressChangeEvents = previousSuppression;
     }
 
@@ -225,6 +268,22 @@ public partial class SettingsWindow : Window
         if (!_suppressChangeEvents)
         {
             StartWithWindowsChanged?.Invoke(StartWithWindowsEnabled);
+        }
+    }
+
+    private void LanguageOption_OnChecked(object sender, RoutedEventArgs e)
+    {
+        if (!_suppressChangeEvents)
+        {
+            LanguagePreferenceChanged?.Invoke(SelectedLanguage);
+        }
+    }
+
+    private void TimeFormatOption_OnChecked(object sender, RoutedEventArgs e)
+    {
+        if (!_suppressChangeEvents)
+        {
+            TimeFormatPreferenceChanged?.Invoke(SelectedTimeFormat);
         }
     }
 }

@@ -1,5 +1,7 @@
 # Codex Usage Widget
 
+English | [简体中文](README.zh-CN.md)
+
 See the Codex limits available to your account, including 5-hour and weekly windows,
 without opening a browser. Codex Usage Widget runs locally on Windows and reads usage
 through the official Codex CLI app server.
@@ -36,9 +38,12 @@ of `codex.cmd` or `codex.exe`.
 - Remaining percentage and reset time for every general Codex usage window
 - A selectable displayed limit shared by the widget headline, taskbar label, and tray icon
 - Compact and detailed desktop-widget layouts selected from Settings or the quick chevron,
-  including credits, spend controls, earned resets, token activity, and model-specific limits
-  when Codex returns them
+  including credits, spend controls, earned-reset expiration and redemption, token activity,
+  and model-specific limits when Codex returns them
 - System, light, and dark themes with five preset accent colors selected from Settings
+- Automatic Windows-language selection with English fallback, plus English and Simplified
+  Chinese overrides in Settings
+- Windows regional, 24-hour, and 12-hour time formats selected from Settings
 - A movable, always-on-top desktop widget and a compact screen indicator with a persistent X/Y position
 - Live task activity dots based on official local Codex lifecycle hooks
 - Automatic refresh every two minutes plus live rate-limit notifications
@@ -62,9 +67,13 @@ widget falls back to an available window when Codex does not return the selected
 Token activity is informational. Token counts do not map directly to the remaining
 subscription percentage.
 
+When earned rate-limit resets are available, expand **Rate-limit resets** in the detailed
+widget to see each expiration time. **Use reset** always requires confirmation, consumes the
+selected earned reset, and lets Codex apply it to an eligible rate-limit window.
+
 ![Codex Usage Widget mini indicator preview](docs/images/taskbar-label.png)
 
-Select the `−` button to switch to the mini indicator. In **Settings**, use the horizontal and vertical sliders under **Mini indicator** to place it anywhere on the screen. At 100% vertical, the indicator starts at the top of the taskbar so it can overlap it. Right-click the indicator or tray icon to refresh, change the display mode, open Settings, check for updates, or exit. Theme, accent color, widget layout, displayed limit, and Start with Windows changes apply as soon as they are selected.
+Select the `−` button to switch to the mini indicator. In **Settings**, use the horizontal and vertical sliders under **Mini indicator** to place it anywhere on the screen. At 100% vertical, the indicator starts at the top of the taskbar so it can overlap it. Right-click the indicator or tray icon to refresh, change the display mode, open Settings, check for updates, or exit. Language, time format, theme, accent color, widget layout, displayed limit, and Start with Windows changes apply as soon as they are selected.
 
 ## Activity dots
 
@@ -98,6 +107,10 @@ The application writes only under `%LOCALAPPDATA%\CodexUsageWidget`:
 - `displayed-limit.txt`: selected summary limit
 - `theme.txt`: system, light, or dark theme preference
 - `accent-palette.txt`: selected preset accent color
+- `language.txt`: system, English, or Simplified Chinese language preference
+- `time-format.txt`: Windows regional, 24-hour, or 12-hour time preference
+- `pending-rate-limit-reset.json`: an unfinished reset attempt kept until Codex returns a
+  definitive outcome, so a retry cannot consume another reset
 - `logs\codex-usage-widget-YYYYMMDD.log`: diagnostic logs retained for 14 days
 
 The widget displays ChatGPT and Codex subscription limits. It does not display OpenAI API
