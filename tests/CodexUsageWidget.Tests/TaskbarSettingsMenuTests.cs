@@ -43,6 +43,17 @@ public sealed class TaskbarSettingsMenuTests
                 try
                 {
                 var window = new TaskbarLabelWindow();
+                // Simulate repeated native/DPI size write-back without allowing
+                // the size requested by repositioning to shrink with it.
+                Assert.Equal(new System.Windows.Size(102, 40), window.OverlayLogicalSize);
+                for (var resize = 0; resize < 20; resize++)
+                {
+                    window.Width *= 0.8;
+                    window.Height *= 0.8;
+                    Assert.Equal(new System.Windows.Size(102, 40), window.OverlayLogicalSize);
+                }
+                window.Width = window.OverlayLogicalSize.Width;
+                window.Height = window.OverlayLogicalSize.Height;
                 var menu = Assert.IsType<ContextMenu>(window.FindName("TaskbarMenu"));
 
                 window.SetSystemTheme(EffectiveTheme.Light);

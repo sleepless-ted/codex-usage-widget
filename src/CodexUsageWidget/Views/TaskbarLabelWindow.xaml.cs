@@ -34,6 +34,9 @@ public partial class TaskbarLabelWindow : Window
     public TaskbarLabelWindow()
     {
         InitializeComponent();
+        // Native positioning and DPI transitions can write back to Width/Height.
+        // Never feed those changing values into the next SetWindowPos call.
+        OverlayLogicalSize = new System.Windows.Size(Width, Height);
         Strings.Current.PropertyChanged += StringsOnPropertyChanged;
 
 #if DEBUG || ACTIVITY_PREVIEW
@@ -65,6 +68,8 @@ public partial class TaskbarLabelWindow : Window
             Strings.Current.PropertyChanged -= StringsOnPropertyChanged;
         };
     }
+
+    internal System.Windows.Size OverlayLogicalSize { get; }
 
     public event EventHandler? OpenRequested;
 
@@ -221,7 +226,8 @@ public partial class TaskbarLabelWindow : Window
     {
         if (_windowHandle != IntPtr.Zero)
         {
-            TaskbarWindowInterop.PositionAtWorkAreaPosition(_windowHandle, Width, Height, _position);
+            TaskbarWindowInterop.PositionAtWorkAreaPosition(
+                _windowHandle, OverlayLogicalSize.Width, OverlayLogicalSize.Height, _position);
         }
     }
 
